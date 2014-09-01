@@ -196,8 +196,8 @@ function! s:insert_charwise(ai, insertion)
     " calculate the position of shifted target region
     if head_before[0] == tail_before[0]
       " the target text does not include any line-breaking
-      let head_after = [line('.'), col('.')]
-      let tail_after = [line('.'), col('.') + tail_before[1] - head_before[1]]
+      let head_after = [line('.'), col('.') + 1]
+      let tail_after = [line('.'), col('.') + tail_before[1] - head_before[1] + 1]
     else
       " the target text consists of several lines
       let head_after = [line('.'), col('.') + 1]
@@ -210,7 +210,6 @@ function! s:insert_charwise(ai, insertion)
 
     execute "normal! `]a" . a:insertion
   endif
-  " PP! region
 
   return region
 endfunction
