@@ -20,15 +20,15 @@ endfunction
 " Private {{{1
 
 " The definition of null position and region
-let s:null_pos    = [0, 0]
+let s:null_pos    = [0, 0, 0, 0]
 let s:null_region = [s:null_pos, s:null_pos]
 
 " break the seal of funcrefs
 " NOTE: s:set_info() should be called only in the function s:prototype except
 "       for the case of 'state' key as possible. Otherwise it is really easy
 "       to mess up.
-let [s:get_info, s:set_info, s:add_info]
-      \   = operator#insert#funcref_mediator(['get_info', 'set_info', 'add_info'])
+let [s:get_info, s:set_info]
+      \   = operator#insert#funcref_mediator(['get_info', 'set_info'])
 
 
 
@@ -106,8 +106,8 @@ let [s:get_info, s:set_info, s:add_info]
 
 function! s:fixer(ai)
   let [operatorfunc, textobj, next] = a:ai ==# 'i'
-        \                           ? ['operator#insert#i', 'gn', 'n']
-        \                           : ['operator#insert#a', 'gN', 'N']
+        \                           ? ['operator#insert#insert_i', 'gn', 'n']
+        \                           : ['operator#insert#insert_a', 'gN', 'N']
 
   if !(v:operator ==# 'g@' && &operatorfunc ==# operatorfunc)
     " fail-safe
@@ -130,75 +130,55 @@ function! s:executer(ai, count, textobj, next)
   " save marks, '<, '>
   let lt = getpos("'<")
   let gt = getpos("'>")
-  call s:set_info('visualmarks', [lt, gt])
-
 
   if state == 2
     " 'Hot' calling. Skip the closest target if in super-excited state
     let last_target = s:get_info('last_target')
     try
       for i in [1, 2]
-        let target = s:capture_range(1, a:textobj)
+        let target = s:capture_range(1, a:textobj, 1)
         " FIXME: Am I sure that this is the appropriate condition?
         if target != last_target | break | endif
         execute "normal! " . a:next
       endfor
 
-      let target = s:capture_range(l:count, a:textobj)
+      let target = s:capture_range(l:count, a:textobj, 1)
       let [head, tail] = target
     catch /^Vim\%((\a\+)\)\=:E\%(384\|385\|486\)/
       call s:error_handling_no_target(view, lt, gt)
-      call s:set_info('visualmarks', s:null_region)
     endtry
   else
     " Keymapping calling or 'cold' calling. Work as usual.
-    let [head, tail] = s:capture_range(l:count, a:textobj)
+    let [head, tail] = s:capture_range(l:count, a:textobj, 1)
   endif
 
   if head != s:null_pos && tail != s:null_pos
-    " open foldings
-    let opened_fold = s:open_fold(head, tail)
-
-    " highlight target if it is called from keymappings (i.e. not dot-repeat)
-    if !state && g:operator#insert#textobj#open_fold
-      if v:version > 704 || v:version == 704 && has('patch343')
-        let id = [matchaddpos("IncSearch", [[line("'["), col("'["), tail[1] - head[1] + 1]])]
-      else
-        " It seems the pattern \%'[ has some bug... Do not use it.
-        let id = [matchadd("IncSearch", printf('\%%%sl\%%>%sc.*\%%<%sc', line("'["), col("'[") - 1, col("']") + 1))]
-      endif
-      call s:add_info('highlight', id)
-
-      redraw
-    endif
-
     " select range
-    call cursor(head)
     normal! v
-    call cursor(tail)
+    call cursor(head[1:2])
+    normal! o
+    call cursor(tail[1:2])
 
     " counter measure for the 'selection' option being 'exclusive'
     if &selection == 'exclusive'
       normal! l
     endif
-
-    " save the view to b:operator_insert_info
-    call s:set_info('view', view)
-
-    " pass the list of opened foldings
-    call s:set_info('opened_fold', opened_fold)
   else
     " no target
     call s:error_handling_no_target(view, lt, gt)
   endif
 endfunction
 
-function! s:capture_range(count, textobj)
-  let s:range = s:null_region
+function! s:capture_range(count, textobj, bang)
+  let s:range = copy(s:null_region)
   let operatorfunc  = &operatorfunc
   let &operatorfunc = '<SID>operator_range_capture'
   try
-    execute 'normal! g@' . a:count . a:textobj
+    if a:bang
+      execute 'normal! g@' . a:count . a:textobj
+    else
+      execute 'normal g@' . a:count . a:textobj
+    endif
   finally
     let &operatorfunc = operatorfunc
     return s:range
@@ -206,7 +186,7 @@ function! s:capture_range(count, textobj)
 endfunction
 
 function! s:operator_range_capture(motion_wise)
-  let s:range = [getpos("'[")[1:2], getpos("']")[1:2]]
+  let s:range = [getpos("'["), getpos("']")]
 endfunction
 
 function! s:error_handling_no_target(view, lt, gt)
@@ -225,29 +205,6 @@ function! s:error_handling_no_target(view, lt, gt)
   " deactivate operator-insert
   call operator#insert#deactivate()
 endfunction
-
-function! s:open_fold(head, tail)
-  let opened_fold = []
-  for lnum in range(a:head[0], a:tail[0])
-    while 1
-      let fold_start = foldclosed(lnum)
-      if fold_start < 0 | break | endif
-
-      execute lnum . 'foldopen'
-      let opened_fold += [fold_start]
-    endwhile
-  endfor
-
-  return opened_fold
-endfunction
-
-"}}}
-
-" Options {{{1
-
-" Manage the behavior when the target textobject is inside foldings.
-let g:operator#insert#textobj#open_fold =
-      \ get(g:, 'operator#insert#textobj#open_fold', 1)
 
 "}}}
 
