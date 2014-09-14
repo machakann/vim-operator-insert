@@ -772,7 +772,11 @@ function! s:cut_out_insertion() "{{{
   let string = ''
   let unnamed = @"
   try
-    execute 'normal! `[""d`]'
+    if col("']") == col([line("']"), '$'])
+      execute 'normal! `[""dv`]'
+    else
+      execute 'normal! `[""d`]'
+    endif
     let string = @"
   finally
     let @" = unnamed
