@@ -589,8 +589,8 @@ function! s:delayed_execution(ai) "{{{
     " reserve quencher (to the first excited state)
     call feedkeys(":autocmd operator-insert
           \ InsertEnter,CursorMoved,TextChanged,WinLeave,FileChangedShellPost
-          \ <buffer> call operator#insert#quench_state()\<CR>
-          \ :echo ''\<CR>", 'n')
+          \ <buffer> call operator#insert#quench_state()\<CR>:echo ''\<CR>",
+          \ 'n')
   else
     """ nothing inserted
     " excite to the first excited state
