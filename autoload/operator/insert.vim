@@ -608,6 +608,7 @@ function! s:start_insert(ai, motion_wise)  "{{{
   else
     call cursor(getpos("']")[1:])
     if col("']") >= col("$") - 1
+    if col("']") >= col("$") - 1 || a:motion_wise == "line"
       startinsert!
     else
       normal! l
