@@ -27,8 +27,8 @@ set cpo&vim
 
 " Public API {{{1
 
-function! operator#insert#map_clerk(ai)
-  return s:operator_insert_map_clerk(a:ai)
+function! operator#insert#map_clerk(kind)
+  return s:operator_insert_map_clerk(a:kind)
 endfunction
 
 function! operator#insert#insert_i(motion_wise)
@@ -37,6 +37,14 @@ endfunction
 
 function! operator#insert#insert_a(motion_wise)
   return s:operator_insert_origin('a', a:motion_wise)
+endfunction
+
+function! operator#insert#insert_o(motion_wise)
+  return s:operator_insert_origin('o', a:motion_wise)
+endfunction
+
+function! operator#insert#insert_O(motion_wise)
+  return s:operator_insert_origin('O', a:motion_wise)
 endfunction
 
 
@@ -133,10 +141,10 @@ let s:motions = [
   \ "g`x", "g`y", "g`z", "g`'", "g``", "g`\"", "g`[", "g`]", "g`<", "g`>",
   \ "g`^", "g`.", "g`(", "g`)", "g`{", "g`}"
   \ ]
-let s:textobjects = ["aw", "iw", "aW", "iW", "as", "is", "ap", "ip", "a[",
-  \ "a]", "i[", "i]", "a(", "a)", "ab", "i(", "i)", "ib", "a<", "a>",
-  \ "i<", "i>", "at", "it", "a{", "a}", "aB", "i{", "i}", "iB", 'a"',
-  \ "a'", "a`", 'a"', "i'", "i`"
+let s:textobjects = [
+  \ "aw", "iw", "aW", "iW", "as", "is", "ap", "ip", "a[", "a]", "i[", "i]",
+  \ "a(", "a)", "ab", "i(", "i)", "ib", "a<", "a>", "i<", "i>", "at", "it",
+  \ "a{", "a}", "aB", "i{", "i}", "iB", 'a"', "a'", "a`", 'a"', "i'", "i`"
   \ ]
 
 
@@ -146,7 +154,7 @@ let s:textobjects = ["aw", "iw", "aW", "iW", "as", "is", "ap", "ip", "a[",
 " assigned to itself while a textobject/motion can know what operator is
 " reserved for it.
 " FIXME: Refactoring is requied!
-function! s:operator_insert_map_clerk(ai) "{{{
+function! s:operator_insert_map_clerk(kind) "{{{
   let pre_count = v:count1
 
   call s:update_cmdline_echo('')
@@ -272,11 +280,11 @@ function! s:operator_insert_map_clerk(ai) "{{{
 
       " save key sequence and queue it
       call s:set_info('keyseq', keyseq)
-      execute 'setlocal operatorfunc=operator#insert#insert_' . a:ai
+      execute 'setlocal operatorfunc=operator#insert#insert_' . a:kind
       call operator#insert#ground_state()
       call feedkeys(pre_count . 'g@' . keyseq)
     else
-      let transferred_mappings = map(lhs_list, 's:transfer_mapping(a:ai, v:val[0])')
+      let transferred_mappings = map(lhs_list, 's:transfer_mapping(a:kind, v:val[0])')
       call s:set_info('transferred_mappings', transferred_mappings)
 
       " save count
@@ -431,8 +439,8 @@ function! s:convert_to_partial_matching_pattern(string, plug_map_list)  "{{{
             \ 'v:val ==# '']'' ? ''[]]'' : v:val'), '')
 endfunction
 "}}}
-function! s:transfer_mapping(ai, lhs) "{{{
-  execute 'onoremap <silent><buffer> ' . lhs . ' :call <SID>settled_competitive_mappings(' . ai . ', ' . a:lhs . ")\<CR>"
+function! s:transfer_mapping(kind, lhs) "{{{
+  execute 'onoremap <silent><buffer> ' . lhs . ' :call <SID>settle_competitive_mappings(' . kind . ', ' . a:lhs . ")\<CR>"
   return maparg(a:lhs, 'o', 0, 1)
 endfunction
 "}}}
@@ -452,7 +460,7 @@ function! s:revert_mapping(map) "{{{
   return ''
 endfunction
 "}}}
-function! s:settled_competitive_mappings(ai, residue) "{{{
+function! s:settle_competitive_mappings(kind, residue) "{{{
   let l:count = s:get_info('count')
   let keyseq  = s:get_info('keyseq')
 
@@ -460,7 +468,7 @@ function! s:settled_competitive_mappings(ai, residue) "{{{
 
   " save key sequence and queue it
   call s:set_info('keyseq', keyseq)
-  execute 'setlocal operatorfunc=operator#insert#insert_' . a:ai
+  execute 'setlocal operatorfunc=operator#insert#insert_' . a:kind
   call operator#insert#ground_state()
   call feedkeys(l:count . 'g@' . keyseq)
 
@@ -479,7 +487,7 @@ endfunction
 
 
 """ The original of each operator
-function! s:operator_insert_origin(ai, motion_wise) "{{{
+function! s:operator_insert_origin(kind, motion_wise) "{{{
   " if it is not active, then quit immediately
   if !s:is_active()
     call operator#insert#activate()
@@ -499,27 +507,22 @@ function! s:operator_insert_origin(ai, motion_wise) "{{{
     " reserve recorder (to save the inserted text)
     augroup operator-insert
       autocmd! * <buffer>
-      if a:ai ==# 'i'
-        autocmd InsertEnter <buffer> autocmd operator-insert InsertLeave
-              \ <buffer> call s:delayed_execution('i')
-      else
-        autocmd InsertEnter <buffer> autocmd operator-insert InsertLeave
-              \ <buffer> call s:delayed_execution('a')
-      endif
+      execute 'autocmd InsertEnter <buffer> autocmd operator-insert InsertLeave
+            \ <buffer> call s:delayed_execution("' . a:kind . '")'
       " for the safety (in case of the <C-c> use)
       autocmd InsertEnter <buffer> autocmd operator-insert InsertEnter
             \ <buffer> call operator#insert#quench_state()
     augroup END
 
     " get into insert mode
-    call s:start_insert(a:ai, a:motion_wise)
+    call s:start_insert(a:kind, a:motion_wise)
   else
     " dot-repeat
     let insertion = s:get_info('last_insertion')
     if insertion != []
       " execute an action
-      let base_indent = s:get_indent(getpos("'[")[1])
-      let region = s:insert_{a:motion_wise}wise(a:ai, insertion, base_indent)
+      let base_indent = indent(line("'["))
+      let region = s:insert_{a:motion_wise}wise(a:kind, insertion, base_indent)
 
       " record the target region
       call s:set_info('last_target', region)
@@ -541,7 +544,7 @@ function! s:operator_insert_origin(ai, motion_wise) "{{{
   endif
 endfunction
 "}}}
-function! s:delayed_execution(ai) "{{{
+function! s:delayed_execution(kind) "{{{
   augroup operator-insert
     autocmd! * <buffer>
   augroup END
@@ -555,9 +558,17 @@ function! s:delayed_execution(ai) "{{{
   if head != tail
     """ something inserted
     " cut and re-insert the text depending on a motion_wise
-    let base_indent   = s:get_indent(head[1])
-    let insertion     = s:cut_out_insertion()
-    let target_region = s:insert_{motion_wise}wise(a:ai, insertion, base_indent, range)
+    let base_indent = indent(head[1])
+    let insertion   = s:cut_out_insertion()
+    if a:kind ==# 'o'
+      let insertion[0][1] = insertion[0][1][base_indent :]
+      delete
+      normal! k
+    elseif a:kind ==# 'O'
+      let insertion[0][1] = insertion[0][1][base_indent :]
+      delete
+    endif
+    let target_region = s:insert_{motion_wise}wise(a:kind, insertion, base_indent, range)
 
     " record the inserted text
     call s:set_info('last_insertion', insertion)
@@ -584,13 +595,15 @@ function! s:delayed_execution(ai) "{{{
     call s:set_info('view', winsaveview())
     call operator#insert#deactivate()
     call feedkeys(l:count . 'g@' . keyseq)
-    call feedkeys(":call operator#insert#restore_view()\<CR>", 'n')
 
     " reserve quencher (to the first excited state)
     call feedkeys(":autocmd operator-insert
           \ InsertEnter,CursorMoved,TextChanged,WinLeave,FileChangedShellPost
-          \ <buffer> call operator#insert#quench_state()\<CR>:echo ''\<CR>",
+          \ <buffer> call operator#insert#quench_state()\<CR>",
           \ 'n')
+
+    " restore view
+    call feedkeys(":call operator#insert#restore_view()\<CR>:echo ''\<CR>", 'n')
   else
     """ nothing inserted
     " excite to the first excited state
@@ -598,28 +611,29 @@ function! s:delayed_execution(ai) "{{{
   endif
 endfunction
 "}}}
-function! s:start_insert(ai, motion_wise)  "{{{
-  if a:ai ==# 'i'
-    call cursor(getpos("'[")[1:])
+function! s:start_insert(kind, motion_wise)  "{{{
+  call setpos('.', getpos("'["))
+  if a:kind ==# 'i'
     if a:motion_wise == "line"
       normal! ^
     endif
-    startinsert
-  else
-    call cursor(getpos("']")[1:])
-    if col("']") >= col("$") - 1
+  elseif a:kind ==# 'a'
+    call setpos('.', getpos("']"))
     if col("']") >= col("$") - 1 || a:motion_wise == "line"
-      startinsert!
-    else
-      normal! l
-      startinsert
+      normal! $
     endif
+  endif
+
+  call feedkeys(a:kind, 'n')
+
+  if a:kind ==? 'o' && a:motion_wise ==# 'block'
+    call feedkeys("\<C-u>" . s:put_tab(getpos("'[")[2] - 1), 'n')
   endif
   call setpos("'[", getpos('.'))
   call setpos("']", getpos('.'))
 endfunction
 "}}}
-function! s:insert_charwise(ai, insertion, base_indent, ...) "{{{
+function! s:insert_charwise(kind, insertion, base_indent, ...) "{{{
   if a:0 > 0
     call setpos("'[", a:1[0])
     call setpos("']", a:1[1])
@@ -629,7 +643,7 @@ function! s:insert_charwise(ai, insertion, base_indent, ...) "{{{
   let head_before = getpos("'[")
   let tail_before = getpos("']")
 
-  if a:ai ==# 'i'
+  if a:kind ==# 'i'
     call s:insert_text('', '`[""P', a:insertion, a:base_indent)
 
     " calculate the position of shifted target region
@@ -645,17 +659,26 @@ function! s:insert_charwise(ai, insertion, base_indent, ...) "{{{
             \ tail_before[2], 0]
     endif
     let region = [head_after, tail_after]
-  else
+  elseif a:kind ==# 'a'
     " record the region of target text
     let region = [head_before, tail_before]
-
     call s:insert_text('', '`]""p', a:insertion, a:base_indent)
+  elseif a:kind ==# 'o'
+    let region = [head_before, tail_before]
+    let insertion = copy(a:insertion)
+    let insertion[0] = s:put_tab(a:base_indent) . a:insertion[0]
+    call s:insert_text('', ':call setreg(''"'', @", "l")\<CR>""p', a:insertion, a:base_indent)
+  elseif a:kind ==# 'O'
+    let region = [head_before, tail_before]
+    let insertion = copy(a:insertion)
+    let insertion[0] = s:put_tab(a:base_indent) . a:insertion[0]
+    call s:insert_text('', ':call setreg(''"'', @", "l")\<CR>""P', a:insertion, a:base_indent)
   endif
 
   return region
 endfunction
 "}}}
-function! s:insert_linewise(ai, insertion, base_indent, ...) "{{{
+function! s:insert_linewise(kind, insertion, base_indent, ...) "{{{
   if a:0 > 0
     call setpos("'[", a:1[0])
     call setpos("']", a:1[1])
@@ -663,19 +686,32 @@ function! s:insert_linewise(ai, insertion, base_indent, ...) "{{{
 
   let [head, tail] = [line("'["), line("']")]
 
-  if a:ai ==# 'i'
+  if a:kind ==# 'i'
     " not sure... removing '^' might be more natural...
     for lnum in reverse(range(head, tail))
       call s:insert_text(lnum, '^""P', a:insertion, a:base_indent)
     endfor
-  else
+    let height = (len(a:insertion) - 1)*(tail - head + 1)
+  elseif a:kind ==# 'a'
     for lnum in reverse(range(head, tail))
       call s:insert_text(lnum, '$""p', a:insertion, a:base_indent)
     endfor
+    let height = (len(a:insertion) - 1)*(tail - head + 1)
+  elseif a:kind ==# 'o'
+    for lnum in reverse(range(head, tail))
+      execute lnum . "normal! o \<BS>"
+      call s:insert_text('', '""p', a:insertion, indent(lnum + 1))
+    endfor
+    let height = len(a:insertion)*(tail - head + 1)
+  elseif a:kind ==# 'O'
+    for lnum in reverse(range(head, tail))
+      execute lnum . "normal! O \<BS>"
+      call s:insert_text('', '""p', a:insertion, indent(lnum))
+    endfor
+    let height = len(a:insertion)*(tail - head + 1)
   endif
 
   " set marks as wrapping whole lines
-  let height = (len(a:insertion) - 1)*(tail - head + 1)
   call setpos("'[", [0, head, 0, 0])
   call setpos("']", [0, tail + height, col([tail + height, '$']), 0])
 
@@ -683,7 +719,7 @@ function! s:insert_linewise(ai, insertion, base_indent, ...) "{{{
   return copy(s:null_region)
 endfunction
 "}}}
-function! s:insert_blockwise(ai, insertion, base_indent, ...)  "{{{
+function! s:insert_blockwise(kind, insertion, base_indent, ...)  "{{{
   if a:0 > 0
     call setpos("'[", a:1[0])
     call setpos("']", a:1[1])
@@ -691,33 +727,55 @@ function! s:insert_blockwise(ai, insertion, base_indent, ...)  "{{{
 
   let processed = []
   let height    = 0
-  let increment = len(a:insertion)
 
   " lines: [lnum, length]
   let lines = reverse(map(range(line("'["), line("']")),
         \               '[v:val, strlen(getline(v:val))]'))
 
-  if a:ai ==# 'i'
+  if a:kind ==# 'i'
+    let increment = len(a:insertion) - 1
     let col   = col("'[")
     for line in lines
+      call cursor(line[0], col)
       if line[1] >= col
-        call cursor(line[0], col)
         call s:insert_text('', '""P', a:insertion, a:base_indent)
-        let processed += [line[0]]
-        let height    += increment
       elseif line[1] == col - 1
-        call cursor(line[0], col)
         call s:insert_text('', '""p', a:insertion, a:base_indent)
-        let processed += [line[0]]
-        let height    += increment
       endif
+      let processed += [line[0]]
+      let height    += increment
     endfor
-  else
+  elseif a:kind ==# 'a'
+    let increment = len(a:insertion) - 1
     let col = col("']")
     for line in lines
       if line[1] >= col
         call cursor(line[0], col)
-        call s:insert_text('', '""p', a:insertion, s:get_indent(line[0]))
+        call s:insert_text('', '""p', a:insertion, indent(line[0]))
+        let processed += [line[0]]
+        let height    += increment
+      endif
+    endfor
+  elseif a:kind ==# 'o'
+    let increment = len(a:insertion)
+    let col = col("'[")
+    let base_indent = col - 1
+    for line in lines
+      if line[1] >= col - 1
+        execute line[0] . "normal! o\<C-u>" . s:put_tab(base_indent)
+        call s:insert_text('', '""p', a:insertion, base_indent)
+        let processed += [line[0]]
+        let height    += increment
+      endif
+    endfor
+  elseif a:kind ==# 'O'
+    let increment = len(a:insertion)
+    let col = col("'[")
+    let base_indent = col - 1
+    for line in lines
+      if line[1] >= col - 1
+        execute line[0] . "normal! O\<C-u>" . s:put_tab(base_indent)
+        call s:insert_text('', '""p', a:insertion, base_indent)
         let processed += [line[0]]
         let height    += increment
       endif
@@ -726,13 +784,13 @@ function! s:insert_blockwise(ai, insertion, base_indent, ...)  "{{{
 
   " set marks for the topleft and bottomright edge of the processed region
   if processed != []
-    if len(a:insertion) > 1
-      call setpos("'[", [0, processed[-1], col("'["), 0])
-      call setpos("']", [0, processed[0] + height, col("']") - 1, 0])
-    else
+    if len(a:insertion) > 1 || a:kind ==? 'o'
       call setpos("'[", [0, processed[-1], 0, 0])
       call setpos("']", [0, processed[0] + height,
             \ col([processed[0] + height, '$']), 0])
+    else
+      call setpos("'[", [0, processed[-1], col("'["), 0])
+      call setpos("']", [0, processed[0], col("']"), 0])
     endif
   endif
 
@@ -842,16 +900,11 @@ function! s:compare_line_length(before, after)  "{{{
   return [head, tail]
 endfunction
 "}}}
-function! s:get_indent(lnum)  "{{{
-  return indent(a:lnum)/shiftwidth()
-endfunction
-"}}}
 function! s:put_tab(indent) "{{{
-  let tabwidth = shiftwidth()*a:indent
   if &expandtab
-    let tab = repeat(' ', tabwidth)
+    let tab = repeat(' ', a:indent)
   else
-    let tab = repeat('	', tabwidth/&tabstop) . repeat(' ', tabwidth%&tabstop)
+    let tab = repeat('	', a:indent/&tabstop) . repeat(' ', a:indent%&tabstop)
   endif
   return tab
 endfunction
@@ -860,6 +913,7 @@ function! s:is_active() "{{{
   return s:bool_activity
 endfunction
 "}}}
+
 
 
 " History and state management
