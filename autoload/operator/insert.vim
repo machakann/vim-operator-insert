@@ -88,7 +88,7 @@ function! operator#insert#quench_state()
   augroup END
 endfunction
 
-function! operator#insert#restore_view()
+function! operator#insert#post_process()
   " restore view
   let view = s:get_info('view')
   if view != {}
@@ -587,9 +587,10 @@ function! s:delayed_execution(kind) "{{{
     let keyseq  = s:get_info('keyseq')
     let cmdline = s:get_info('commandline')
     if cmdline == ':'
-      let keyseq = ':' . @: . "\<CR>"
+      let keyseq = cmdline . @: . "\<CR>"
     elseif cmdline =~# '[/?]'
-      let keyseq = cmdline . @/ . "\<CR>"
+      " But actually '?' for the first argument of histget seems available.
+      let keyseq = cmdline . histget('/', -1) . "\<CR>"
     endif
     call s:set_info('commandline', '')
     call s:set_info('view', winsaveview())
@@ -603,7 +604,7 @@ function! s:delayed_execution(kind) "{{{
           \ 'n')
 
     " restore view
-    call feedkeys(":call operator#insert#restore_view()\<CR>:echo ''\<CR>", 'n')
+    call feedkeys(":call operator#insert#post_process()\<CR>:echo ''\<CR>", 'n')
   else
     """ nothing inserted
     " excite to the first excited state
