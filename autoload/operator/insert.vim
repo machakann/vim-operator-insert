@@ -31,20 +31,20 @@ function! operator#insert#map_clerk(kind)
   return s:operator_insert_map_clerk(a:kind)
 endfunction
 
-function! operator#insert#insert_i(motion_wise)
-  return s:operator_insert_origin('i', a:motion_wise)
+function! operator#insert#insert_i(motion_wise, ...)
+  return s:operator_insert_origin('i', a:motion_wise, a:000)
 endfunction
 
-function! operator#insert#insert_a(motion_wise)
-  return s:operator_insert_origin('a', a:motion_wise)
+function! operator#insert#insert_a(motion_wise, ...)
+  return s:operator_insert_origin('a', a:motion_wise, a:000)
 endfunction
 
-function! operator#insert#insert_o(motion_wise)
-  return s:operator_insert_origin('o', a:motion_wise)
+function! operator#insert#insert_o(motion_wise, ...)
+  return s:operator_insert_origin('o', a:motion_wise, a:000)
 endfunction
 
-function! operator#insert#insert_O(motion_wise)
-  return s:operator_insert_origin('O', a:motion_wise)
+function! operator#insert#insert_O(motion_wise, ...)
+  return s:operator_insert_origin('O', a:motion_wise, a:000)
 endfunction
 
 
@@ -102,6 +102,13 @@ function! operator#insert#post_process()
     call setpos("']", tail)
     call s:set_info('modifymarks', copy(s:null_region))
   endif
+
+  let [head, tail] = s:get_info('visualmarks')
+  if head != s:null_pos && tail != s:null_pos
+    call setpos("'<", head)
+    call setpos("'>", tail)
+    call s:set_info('modifymarks', copy(s:null_region))
+  endif
 endfunction
 
 " To bring script-local functions safely as possible
@@ -139,13 +146,16 @@ let s:motions = [
   \ "g`d", "g`e", "g`f", "g`g", "g`h", "g`i", "g`j", "g`k", "g`l", "g`m",
   \ "g`n", "g`o", "g`p", "g`q", "g`r", "g`s", "g`t", "g`u", "g`v", "g`w",
   \ "g`x", "g`y", "g`z", "g`'", "g``", "g`\"", "g`[", "g`]", "g`<", "g`>",
-  \ "g`^", "g`.", "g`(", "g`)", "g`{", "g`}"
+  \ "g`^", "g`.", "g`(", "g`)", "g`{", "g`}", "gn", "gN"
   \ ]
 let s:textobjects = [
   \ "aw", "iw", "aW", "iW", "as", "is", "ap", "ip", "a[", "a]", "i[", "i]",
   \ "a(", "a)", "ab", "i(", "i)", "ib", "a<", "a>", "i<", "i>", "at", "it",
   \ "a{", "a}", "aB", "i{", "i}", "iB", 'a"', "a'", "a`", 'a"', "i'", "i`"
   \ ]
+
+" The regular expression pattern matching with {count} and o_v, o_V, o_CTRL-v
+let s:prefix = "\\m^\\%(\\d*[vV\<C-v>]*\\|[vV\<C-v>]*\\d*\\)"
 
 
 
@@ -169,42 +179,41 @@ function! s:operator_insert_map_clerk(kind) "{{{
     let keyseq .= c
     call s:update_cmdline_echo(keyseq)
 
-    if c =~# '\d'
-      " check user defined keymappings consisting only of number
-      let userdef_lhs  = []
-      while c =~# '\d'
-        let pattern = '\m' . keyseq . '\d*'
-        let userdef_lhs += filter(map(s:list_up_user_mappings('o', keyseq),
-              \   'v:val[2] ==# "\<Nop>" ? "" : v:val[1]'), 'v:val =~# pattern')
-        if userdef_lhs != []
-          let temp = filter(copy(userdef_lhs),
-                \   'keyseq =~# ''\m^\d*'' . v:val . ''$''')
-          if temp != []
-            let userdef_lhs = temp
-            let flag_matched = 1
-            break
-          endif
+    " check user defined keymappings consisting only of numbers or 'o_v's
+    let userdef_lhs  = []
+    while c =~# '\d' || c =~# "[vV\<C-u>]"
+      let pattern = '\m' . keyseq . "[0-9vV\<C-v>]"
+      let userdef_lhs += filter(map(s:list_user_mappings('o', keyseq),
+            \   'v:val[2] ==# "\<Nop>" ? "" : v:val[1]'), 'v:val =~# pattern')
+      if userdef_lhs != []
+        let temp = filter(copy(userdef_lhs),
+              \   'keyseq =~# s:prefix . v:val . ''$''')
+        if temp != []
+          let userdef_lhs = temp
+          let flag_matched = 1
+          break
         endif
+      endif
 
-        let c = getchar()
-        let c = type(c) == type(0) ? nr2char(c) : c
-        let keyseq .= c
-        call s:update_cmdline_echo(keyseq)
-      endwhile
-    endif
+      let c = getchar()
+      let c = type(c) == type(0) ? nr2char(c) : c
+      let keyseq .= c
+      call s:update_cmdline_echo(keyseq)
+    endwhile
 
     if flag_matched != 1
       """ rebuild default/userdef_lhs
       " list up concerned lhs in default mappings
       let default_lhs = filter(map(copy(s:textobjects) + copy(s:motions),
             \ '[v:val, s:convert_to_partial_matching_pattern(v:val, [])]'),
-            \ 'keyseq =~# ''\m^\d*'' . v:val[1]')
+            \ 'keyseq =~# s:prefix . v:val[1]')
 
       " list up concerned lhs in user defined mappings
       let userdef_map = []
       for idx in range(strlen(keyseq))
-        if keyseq[idx] =~# '\m\d' || keyseq[:idx] =~# '\m^\d*\D'
-          let userdef_map += s:list_up_user_mappings('o', keyseq[idx :])
+        let hoge = s:prefix
+        if keyseq[idx] =~# '\m\d' || keyseq[idx] =~# "[vV\<C-v>]" || keyseq[:idx] =~# s:prefix . "[^0-9vV\<C-v>]"
+          let userdef_map += s:list_user_mappings('o', keyseq[idx :])
         endif
       endfor
 
@@ -216,7 +225,7 @@ function! s:operator_insert_map_clerk(kind) "{{{
       let userdef_lhs = filter(map(copy(userdef_map),
             \ 'v:val[2] ==# "\<Nop>" ? "" : v:val[1]'), 'v:val != ""')
       " add partial matching patterns
-      let plug_map_list = map(s:list_up_user_mappings('o', '<Plug>'),
+      let plug_map_list = map(s:list_user_mappings('o', '<Plug>'),
             \ 'matchstr(v:val[1], ''^<Plug>\zs.*'')')
       call map(userdef_lhs,
             \ '[v:val, s:convert_to_partial_matching_pattern(v:val, plug_map_list)]')
@@ -239,10 +248,16 @@ function! s:operator_insert_map_clerk(kind) "{{{
         let default_lhs = []
         let [keyseq, preserved, matched_at] =
               \   s:match_mapping(keyseq, userdef_lhs, default_lhs)
+        let hoge = s:prefix
 
         if keyseq == ''
           let c = preserved[-1]
-          if (preserved =~# '\m^\d*[ft''`].$') && !(c ==# "\<Esc>" || c ==# "\<C-c>")
+          if (preserved =~# s:prefix . '[ft''`]$') && !(c ==# "\<Esc>" || c ==# "\<C-c>")
+            let keyseq = preserved
+            let c = getchar()
+            let c = type(c) == type(0) ? nr2char(c) : c
+            let keyseq .= c
+          elseif (preserved =~# s:prefix . '[ft''`].$') && !(c ==# "\<Esc>" || c ==# "\<C-c>")
             let keyseq = preserved
           else
             let keyseq = ''
@@ -296,7 +311,7 @@ function! s:operator_insert_map_clerk(kind) "{{{
   endif
 endfunction
 "}}}
-function! s:list_up_user_mappings(prefix, fraction) "{{{
+function! s:list_user_mappings(prefix, fraction) "{{{
   redir => map_output
     execute 'silent! ' . a:prefix . 'map ' . a:fraction
   redir END
@@ -487,7 +502,7 @@ endfunction
 
 
 """ The original of each operator
-function! s:operator_insert_origin(kind, motion_wise) "{{{
+function! s:operator_insert_origin(kind, motion_wise, args) "{{{
   " if it is not active, then quit immediately
   if !s:is_active()
     call operator#insert#activate()
@@ -495,34 +510,42 @@ function! s:operator_insert_origin(kind, motion_wise) "{{{
   endif
 
   let state = s:get_info('state')
+  let motion_wise = a:motion_wise ==# 'v'      ? 'char'
+                \ : a:motion_wise ==# 'V'      ? 'line'
+                \ : a:motion_wise ==# "\<C-v>" ? 'block'
+                \ : a:motion_wise
 
   if !state
-    let head = getpos("'[")
-    let tail = getpos("']")
-
-    " record required infomation
-    call s:set_info('motion_wise', a:motion_wise)
-    call s:set_info('range', [head, tail])
+    if a:args != []
+      let mode = a:args[0]
+      let head = getpos("'<")
+      let tail = getpos("'>")
+    else
+      let mode = 'o'
+      let head = getpos("'[")
+      let tail = getpos("']")
+    endif
 
     " reserve recorder (to save the inserted text)
+    let autocmd = 'autocmd InsertEnter <buffer> autocmd operator-insert
+            \ InsertLeave <buffer> call s:delayed_execution("%s","%s","%s",%s)'
     augroup operator-insert
       autocmd! * <buffer>
-      execute 'autocmd InsertEnter <buffer> autocmd operator-insert InsertLeave
-            \ <buffer> call s:delayed_execution("' . a:kind . '")'
+      execute printf(autocmd, a:kind, motion_wise, mode, string([head, tail]))
       " for the safety (in case of the <C-c> use)
       autocmd InsertEnter <buffer> autocmd operator-insert InsertEnter
             \ <buffer> call operator#insert#quench_state()
     augroup END
 
     " get into insert mode
-    call s:start_insert(a:kind, a:motion_wise)
+    call s:start_insert(a:kind, motion_wise, head, tail)
   else
     " dot-repeat
     let insertion = s:get_info('last_insertion')
     if insertion != []
       " execute an action
       let base_indent = indent(line("'["))
-      let region = s:insert_{a:motion_wise}wise(a:kind, insertion, base_indent)
+      let region = s:insert_{motion_wise}wise(a:kind, insertion, base_indent)
 
       " record the target region
       call s:set_info('last_target', region)
@@ -544,13 +567,10 @@ function! s:operator_insert_origin(kind, motion_wise) "{{{
   endif
 endfunction
 "}}}
-function! s:delayed_execution(kind) "{{{
+function! s:delayed_execution(kind, motion_wise, mode, range) "{{{
   augroup operator-insert
     autocmd! * <buffer>
   augroup END
-
-  let motion_wise = s:get_info('motion_wise')
-  let range       = s:get_info('range')
 
   let head = getpos("'[")
   let tail = getpos("']")
@@ -568,7 +588,7 @@ function! s:delayed_execution(kind) "{{{
       let insertion[0][1] = insertion[0][1][base_indent :]
       delete
     endif
-    let target_region = s:insert_{motion_wise}wise(a:kind, insertion, base_indent, range)
+    let target_region = s:insert_{a:motion_wise}wise(a:kind, insertion, base_indent, a:range)
 
     " record the inserted text
     call s:set_info('last_insertion', insertion)
@@ -579,32 +599,45 @@ function! s:delayed_execution(kind) "{{{
     " record the modified region
     call s:set_info('modifymarks', [getpos("'["), getpos("']")])
 
+    " record the visual selected region
+    call s:set_info('visualmarks', [getpos("'<"), getpos("'>")])
+
     " excite to the super-excited state
     call s:set_info('state', 2)
 
     " air-shot just for registering the next dot-repeat candidate
-    let l:count = s:get_info('count')
-    let keyseq  = s:get_info('keyseq')
-    let cmdline = s:get_info('commandline')
-    if cmdline == ':'
-      let keyseq = cmdline . @: . "\<CR>"
-    elseif cmdline =~# '[/?]'
-      " But actually '?' for the first argument of histget seems available.
-      let keyseq = cmdline . histget('/', -1) . "\<CR>"
+    let keyseq = ''
+    if a:mode ==# 'o'
+      " operator-pending mode
+      let keyseq .= s:get_info('count')
+      let cmdline = s:get_info('commandline')
+      call s:set_info('commandline', '')
+      if cmdline == ':'
+        let o_v = filter(split(matchstr(s:get_info('keyseq'), '^[^:]*\ze:'), '\zs'), 'v:val =~# "[vV\<C-v>]"')[-1]
+        let keyseq .= 'g@' . o_v . cmdline . @: . "\<CR>"
+      elseif cmdline =~# '[/?]'
+        let o_v = filter(split(matchstr(s:get_info('keyseq'), '^[^:]*\ze:'), '\zs'), 'v:val =~# "[vV\<C-v>]"')[-1]
+        " But actually '?' for the first argument of histget seems available.
+        let keyseq .= 'g@' . o_v . cmdline . histget('/', -1) . "\<CR>"
+      else
+        let keyseq .= 'g@' . s:get_info('keyseq')
+      endif
+    elseif a:mode ==# 'x'
+      " visual mode
+      let keyseq .= 'gvg@'
     endif
-    call s:set_info('commandline', '')
     call s:set_info('view', winsaveview())
     call operator#insert#deactivate()
-    call feedkeys(l:count . 'g@' . keyseq)
+    call feedkeys(keyseq)
+
+    " restore view
+    call feedkeys(":call operator#insert#post_process()\<CR>", 'n')
 
     " reserve quencher (to the first excited state)
     call feedkeys(":autocmd operator-insert
           \ InsertEnter,CursorMoved,TextChanged,WinLeave,FileChangedShellPost
-          \ <buffer> call operator#insert#quench_state()\<CR>",
+          \ <buffer> call operator#insert#quench_state()\<CR>:echo ''\<CR>",
           \ 'n')
-
-    " restore view
-    call feedkeys(":call operator#insert#post_process()\<CR>:echo ''\<CR>", 'n')
   else
     """ nothing inserted
     " excite to the first excited state
@@ -612,15 +645,15 @@ function! s:delayed_execution(kind) "{{{
   endif
 endfunction
 "}}}
-function! s:start_insert(kind, motion_wise)  "{{{
-  call setpos('.', getpos("'["))
+function! s:start_insert(kind, motion_wise, head, tail)  "{{{
+  call setpos('.', a:head)
   if a:kind ==# 'i'
     if a:motion_wise == "line"
       normal! ^
     endif
   elseif a:kind ==# 'a'
-    call setpos('.', getpos("']"))
-    if col("']") >= col("$") - 1 || a:motion_wise == "line"
+    call setpos('.', a:tail)
+    if a:tail[2] >= col("$") - 1 || a:motion_wise == "line"
       normal! $
     endif
   endif
@@ -628,7 +661,7 @@ function! s:start_insert(kind, motion_wise)  "{{{
   call feedkeys(a:kind, 'n')
 
   if a:kind ==? 'o' && a:motion_wise ==# 'block'
-    call feedkeys("\<C-u>" . s:put_tab(getpos("'[")[2] - 1), 'n')
+    call feedkeys("\<C-u>" . s:put_tab(a:head[2] - 1), 'n')
   endif
   call setpos("'[", getpos('.'))
   call setpos("']", getpos('.'))
@@ -666,14 +699,12 @@ function! s:insert_charwise(kind, insertion, base_indent, ...) "{{{
     call s:insert_text('', '`]""p', a:insertion, a:base_indent)
   elseif a:kind ==# 'o'
     let region = [head_before, tail_before]
-    let insertion = copy(a:insertion)
-    let insertion[0] = s:put_tab(a:base_indent) . a:insertion[0]
-    call s:insert_text('', ':call setreg(''"'', @", "l")\<CR>""p', a:insertion, a:base_indent)
+    execute "normal! o \<BS>"
+    call s:insert_text('', '""p', a:insertion, a:base_indent)
   elseif a:kind ==# 'O'
     let region = [head_before, tail_before]
-    let insertion = copy(a:insertion)
-    let insertion[0] = s:put_tab(a:base_indent) . a:insertion[0]
-    call s:insert_text('', ':call setreg(''"'', @", "l")\<CR>""P', a:insertion, a:base_indent)
+    execute "normal! O \<BS>"
+    call s:insert_text('', '""p', a:insertion, a:base_indent)
   endif
 
   return region
@@ -941,6 +972,8 @@ function! s:get_info(name)  "{{{
     let b:operator_insert_info.last_insertion = []
     let b:operator_insert_info.last_target = copy(s:null_region)
     let b:operator_insert_info.modifymarks = copy(s:null_region)
+    let b:operator_insert_info.visualmarks = copy(s:null_region)
+    let b:operator_insert_info.mode = ''
     let b:operator_insert_info.motion_wise = ''
     let b:operator_insert_info.range = copy(s:null_region)
     let b:operator_insert_info.view = {}
@@ -952,8 +985,8 @@ function! s:get_info(name)  "{{{
   return b:operator_insert_info[a:name]
 endfunction
 "}}}
-" NOTE: s:set_info() and s:add_info should be called only in the function
-"       s:operator_insert_origin except for the case of 'state' key as
+" NOTE: s:set_info() should be called only in the function
+"       s:operator_insert_origin except() for the case of 'state' key as
 "       possible. Otherwise it is really easy to mess up.
 function! s:set_info(name, value) "{{{
   if !exists('b:operator_insert_info')
